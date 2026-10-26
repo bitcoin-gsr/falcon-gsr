@@ -5,6 +5,7 @@ bitcoin-util evalscript.
 Witness (bottom to top): msg (32 bytes), nonce (40 bytes), s2 (1,024 bytes: e_i = s2_i + 6144 as 2-byte
 little-endian numbers). The public key h is a script constant. The script leaves 1 if
 ||(s1, s2)||^2 <= beta^2 for s1 = c - s2 h mod (q, x^512 + 1) and c = HashToPoint(nonce || msg).
+With `bound=True` (spend.py), msg is not a witness item: OP_TX rebuilds it from the spending transaction.
 
 Stages, in script order:
 
@@ -59,6 +60,10 @@ SENTINEL = 1 << 384               # keeps a group number at 49 bytes: 8-byte sum
 BLOCKS = 9                        # SHAKE256 blocks (Keccak permutations)
 SHAKE, SHA = "shake256", "sha256"  # HashToPoint: FN-DSA's, or the tagged SHA-256 variant of falcon_ref
 CALLS = ref.SHA_CALLS             # SHA-256 calls of the variant, 16 samples each
+# OP_TX selector of shrincs-gsr's stage 5: COLLATE version, locktime, input and output counts; all inputs'
+# outpoint, amount, scriptPubKey and sequence; all outputs; the input index, annex and tapleaf hash.
+# A bound verifier signs SHA256 of the collated bytes.
+OPTX_SELECTOR = bytes([0x00, 0x57, 0x0B, 0x22, 0x2F, 0x03])
 H_BITS = 14                       # the variant's h: 14 bits per coefficient, spread to slots in groups of 16
 
 
@@ -263,7 +268,11 @@ def stages(h: list[int], htp: str = SHAKE, blocks: int = BLOCKS, calls: int = CA
     return st
 
 
-def program(h: list[int], upto: int | None = None, htp: str = SHAKE, **kw) -> Program:
+def program(h: list[int], upto: int | None = None, htp: str = SHAKE, bound: bool = False, padded: bool = False,
+            **kw) -> Program:
+    """`bound`: the message is not a witness item but OP_TX's SHA256 of the spending transaction
+    (OPTX_SELECTOR), so the witness is [nonce s2]. `padded`: one more witness item below the others, which
+    only adds weight (and so budget) and is dropped at the end."""
     if htp == SHA:
         p = Program()
         # a reversed digest: sample k (bytes 2k, 2k + 1) is at 30 - 2k
@@ -276,7 +285,9 @@ def program(h: list[int], upto: int | None = None, htp: str = SHAKE, **kw) -> Pr
     p.macro("GROUP_S1", group_s1())
     p.macro("SUB_S1", sub_s1())
     st = stages(h, htp=htp, **kw)
-    p.set_main(" ".join(text for _, text in st[:upto]))
+    # [nonce s2] -> [msg nonce s2]
+    prologue = f"{hx(OPTX_SELECTOR)} TX SHA256 ROT ROT " if bound else ""
+    p.set_main(prologue + " ".join(text for _, text in st[:upto]) + (" NIP" if padded else ""))
     return p
 
 

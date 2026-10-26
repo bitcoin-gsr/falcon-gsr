@@ -1,8 +1,8 @@
 # Keccak-f[1600] and Falcon-512 in GSR Tapleaf 0xC2 Script
 
-Keccak-f[1600] (24 rounds) runs in 13.56M varops per permutation with macros, so it needs 1,407 WU of budget. The script is 1,008 bytes. A complete Falcon-512 verifier built on it (`falcon.py`) runs in 162.4M varops and needs 16,287 WU, against about 18.1k WU estimated. SHAKE256 is 81% of it. A Bitcoin-specific variant that hashes to the point with tagged SHA-256 instead needs 4,588 WU, 3.6 times less, but stock FN-DSA signers cannot sign for it.
+Keccak-f[1600] (24 rounds) runs in 13.56M varops per permutation with macros, so it needs 1,407 WU of budget. The script is 1,008 bytes. A complete Falcon-512 verifier built on it (`falcon.py`) runs in 162.4M varops; bound to its transaction by `OP_TX`, a one-input, one-output spend weighs 16,289 WU, against about 18.1k WU estimated. SHAKE256 is 81% of it. A Bitcoin-specific variant that hashes to the point with tagged SHA-256 instead weighs 4,566 WU, 3.6 times less, but stock FN-DSA signers cannot sign for it.
 
-Measured on jmoik/bitcoin `gsr` @ ad6c16f (`bitcoin-util evalscript`, from `gsr-stark-verifier/build`).
+Measured on jmoik/bitcoin `gsr` @ ad6c16f, with `bitcoin-util evalscript` from `gsr-stark-verifier/build` and, for whole spends, Core's `VerifyScript` (`tools/txeval.cpp`).
 
 ## Representation
 
@@ -42,7 +42,7 @@ One round costs 566k with macros. Measured inline, without the unroll charge, θ
 
 ## Falcon-512 verifier (`falcon.py`, written to `build/falcon.json`)
 
-The witness is the message (32 bytes), the nonce (40 bytes) and s2 uncompressed (1,024 bytes: s2_i + 6144 as 2-byte numbers). The public key h is a script constant. The script leaves 1 when ‖(s1, s2)‖² ≤ β² = 34,034,726, for s1 = c − s2·h mod (q, x^512 + 1) and c = HashToPoint(nonce ‖ msg).
+This section measures the verifier with the message as a witness item, which authorizes nothing; the spends bound to their transaction follow below. The witness is the message (32 bytes), the nonce (40 bytes) and s2 uncompressed (1,024 bytes: s2_i + 6144 as 2-byte numbers). The public key h is a script constant. The script leaves 1 when ‖(s1, s2)‖² ≤ β² = 34,034,726, for s1 = c − s2·h mod (q, x^512 + 1) and c = HashToPoint(nonce ‖ msg).
 
 | stage | varops | per unit |
 |---|---|---|
@@ -91,8 +91,8 @@ The variant changes only HashToPoint. Its stream is 39 BIP 340 tagged hashes, SH
 | unroll charge | 29.7M | 6.9M |
 | script bytes (inline) | 8,150 (158,270) | 3,071 (53,063) |
 | budget, WU | 16,287 | 4,402 |
-| 1-input, 1-output transaction, WU | 9,667 | 4,588 |
-| weight needed, WU | 16,287 | 4,588 |
+| 1-input, 1-output transaction, message unbound, WU | 9,667 | 4,588 |
+| weight needed, message unbound, WU | 16,287 | 4,588 |
 | fewer than 512 accepted samples | 7.8 × 10^-19 | 3.4 × 10^-24 |
 | signers | any FN-DSA signer | needs this HashToPoint |
 
@@ -106,6 +106,33 @@ This costs 3.6M varops: the product stage is 10.5M instead of 6.85M. It cuts the
 39 calls is the first count at which a short stream is less likely than with 9 Keccak blocks. 35 calls (560 samples) would leave 1.2% of nonces short, so the signer would redraw those. It would save 0.95M varops but only 32 WU, because the spend is bound by its bytes: 42.56M varops and 3,039 script bytes, measured.
 
 The trade-off is compatibility. The keys, the signing algorithm and the norm check are FN-DSA's, but a signature is only valid under the HashToPoint it was made with. Stock FN-DSA libraries and hardware signers cannot produce variant signatures without a change to their hashing. Security should be unaffected: HashToPoint needs to behave like a random oracle, and a domain-separated SHA-256 in counter mode is a standard way to build one. That argument is not a proof, and FIPS 206 does not cover the variant.
+
+## Spends bound to the transaction (`spend.py`, written to `build/spend.json`)
+
+The verifiers above check a signature over a 32-byte message from the witness, so they authorize nothing. With `bound=True`, the script rebuilds the message instead. It is `OP_TX`'s SHA256 over version, locktime, all inputs and outputs, the input index, the annex and the tapleaf hash, with the selector of `shrincs-gsr`'s stage 5. That makes the witness [nonce s2]. A spend whose budget falls short carries an extra witness item below the signature. That item adds only weight, sits outside the signed message, and is dropped at the end.
+
+Each spend is a one-input, one-output transaction of a P2TR output with the single 0xC2 leaf. `build/txeval` (from `shrincs-gsr`, built by `tools/build_txeval.sh`) checks it with Core's `VerifyScript` under the BIP 440 transaction budget and standard flags. Each passes. The same witness in a transaction paying 1 sat less fails, and so does a corrupted s2.
+
+| | FN-DSA (SHAKE256) | variant (tagged SHA-256) |
+|---|---|---|
+| transaction, WU | 16,289 | 4,566 |
+| of which padding, WU | 6,642 | 0 |
+| bound by | budget | size |
+| varops (budget) | 162,383,758 (162,390,000) | 43,527,995 (45,160,000) |
+| script bytes | 8,162 | 3,082 |
+| signature bytes (nonce + s2) | 1,064 | 1,064 |
+
+Next to the transaction weights of `shrincs-gsr` (its README, bound by `OP_TX` the same way) and a Schnorr key-path spend:
+
+| one-input, one-output spend | transaction, WU | against Schnorr |
+|---|---:|---:|
+| Schnorr key path (not post-quantum) | 444 | 1.0× |
+| SHRINCS stateful, native opcode | 1,128 | 2.5× |
+| SHRINCS stateful, GSR Script | 2,064 | 4.6× |
+| Falcon-512, tagged SHA-256 variant, GSR Script | 4,566 | 10.3× |
+| SHRINCS stateless, native opcode | 6,245 | 14.1× |
+| SHRINCS stateless, GSR Script | 7,409 | 16.7× |
+| Falcon-512 (FN-DSA), GSR Script | 16,289 | 36.7× |
 
 ## SHAKE256 and Falcon-512 estimate (`estimate.py`, written to `build/estimate.json`)
 
@@ -134,7 +161,7 @@ The measurement came in 10% under the estimate. The SHAKE256 part (absorbing, 9 
 
 ## Verdict
 
-A Falcon-512 verifier is a realistic demo: it is measured at 16,287 WU, far below the 400k WU standard limit. SHAKE256 is 81% of it: 9 permutations at 1.36k WU each. Hashing to the point with `OP_SHA256` instead brings it to 4,588 WU, at the cost of compatibility with stock FN-DSA signers.
+A Falcon-512 verifier is a realistic demo: a bound one-input, one-output spend is measured at 16,289 WU, far below the 400k WU standard limit. SHAKE256 is 81% of it: 9 permutations at 1.36k WU each. Hashing to the point with `OP_SHA256` instead brings it to 4,566 WU, at the cost of compatibility with stock FN-DSA signers.
 
 The open costs are the ones a real build would settle:
 
@@ -142,7 +169,6 @@ The open costs are the ones a real build would settle:
 - The 9-block squeeze is fixed, so about 1 in 10^18 signatures (7.8 × 10^-19) would need a fresh nonce.
 - A signer that redraws the nonce until 8 blocks suffice (41% of nonces) saves a permutation: 147.7M varops, 14,823 WU, measured. The redraw costs only hashing, because the nonce is drawn before the Gaussian sampling. Signatures from an unmodified signer would then fail 59% of the time.
 - Karatsuba on the ring product (three 1280 × 1280-byte `MUL`s) would save roughly 1.3M varops, about 130 WU (estimated, not built).
-- The message is a witness item here. A deployment would bind it to the spending transaction, for example as a sighash from `OP_TX`.
 - A cheaper ρπ would help everything Keccak-based, Ethereum-style proofs included. ρπ is 272k of each 566k round.
 
 ## Files
@@ -151,8 +177,10 @@ The open costs are the ones a real build would settle:
 - `estimate.py`: the representation units, SHAKE256 and Falcon-512.
 - `falcon.py`: the Falcon-512 verifier generator for both HashToPoint variants, a Python model of its arithmetic, the checks and the measurement.
 - `falcon_ref.py`: Falcon-512 key generation, signing and verification in pure Python, with both HashToPoint variants, for test vectors.
+- `spend.py`: Falcon-512 spends bound to their transaction by `OP_TX`, checked and weighed with `txeval`.
+- `tools/txeval.cpp`, `tools/build_txeval.sh`: Core's `VerifyScript` under the BIP 440 transaction budget, from `shrincs-gsr`.
 - `gsrasm.py`: the token assembler with macros and the `evalscript` runner. It uses `gsr-stark-verifier/risc0-succinct/tools/gsr.py` for minimal pushes.
 
 ```
-python3 keccak.py && python3 estimate.py && python3 falcon.py
+python3 keccak.py && python3 estimate.py && python3 falcon.py && python3 spend.py
 ```

@@ -6,24 +6,20 @@ Tokens are whitespace-separated; `#` starts a comment:
     x0011ff         a data push of these bytes
     @NAME           a reference to the macro NAME
 
-Pushes use the encoder of the GSR tools (minimal pushes, Tapleaf 0xC2 rules), loaded by path.
+Pushes are minimal (Tapleaf 0xC2 rules). BITCOIN_GSR is a checkout of jmoik/bitcoin `gsr` and
+BITCOIN_GSR_BUILD its CMake build directory (default: BITCOIN_GSR/build).
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
 import subprocess
 from pathlib import Path
 
-GSR_ROOT = Path(os.environ.get("GSR_ROOT", Path(__file__).resolve().parents[1] / "gsr-stark-verifier"))
-BITCOIN_UTIL = GSR_ROOT / "build" / "bitcoin" / "bin" / "bitcoin-util"
-
-_spec = importlib.util.spec_from_file_location("gsr_tools", GSR_ROOT / "risc0-succinct" / "tools" / "gsr.py")
-_gsr = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_gsr)
-Script, compact = _gsr.Script, _gsr.compact
+BITCOIN_GSR = Path(os.environ.get("BITCOIN_GSR", Path(__file__).resolve().parents[1] / "bitcoin"))
+BITCOIN_GSR_BUILD = Path(os.environ.get("BITCOIN_GSR_BUILD", BITCOIN_GSR / "build"))
+BITCOIN_UTIL = BITCOIN_GSR_BUILD / "bin" / "bitcoin-util"
 
 OPS = {
     "IF": 0x63, "NOTIF": 0x64, "ELSE": 0x67, "ENDIF": 0x68, "VERIFY": 0x69,
@@ -35,6 +31,47 @@ OPS = {
     "LESSTHAN": 0x9F, "SHA256": 0xA8, "TX": 0xBF, "BYTEREV": 0xCF,
 }
 OP_MACRO, OP_CALLMACRO = 0xD0, 0xD1
+
+
+def compact(n: int) -> bytes:
+    """CompactSize, up to 0xFFFF."""
+    return bytes([n]) if n < 253 else b"\xfd" + n.to_bytes(2, "little")
+
+
+class Script:
+    def __init__(self) -> None:
+        self.code = bytearray()
+
+    def data(self, value: bytes) -> None:
+        """Minimal push: empty and 1..16 use their opcodes. 0x81 has no legal push in 0xC2 (MINIMALDATA demands
+        OP_1NEGATE, an OP_SUCCESS there), so it is built as 0x80 + 1."""
+        n = len(value)
+        if n == 0 or (n == 1 and 1 <= value[0] <= 16):
+            self.int(value[0] if n else 0)
+        elif value == b"\x81":
+            self.code += bytes([0x01, 0x80, 0x51, OPS["ADD"]])
+        else:
+            if n <= 75:
+                self.code.append(n)
+            elif n <= 0xFF:
+                self.code += bytes([0x4C, n])
+            elif n <= 0xFFFF:
+                self.code += bytes([0x4D]) + n.to_bytes(2, "little")
+            else:
+                self.code += bytes([0x4E]) + n.to_bytes(4, "little")
+            self.code += value
+
+    def int(self, n: int) -> None:
+        if n <= 16:
+            self.code.append(0x50 + n if n else 0x00)
+        else:
+            self.data(n.to_bytes((n.bit_length() + 7) // 8, "little"))
+
+    def macro(self, body: bytes) -> None:
+        self.code += bytes([OP_MACRO]) + compact(len(body)) + body
+
+    def callmacro(self, index: int) -> None:
+        self.code += bytes([OP_CALLMACRO]) + compact(index)
 
 
 def tokens(text: str) -> list[str]:

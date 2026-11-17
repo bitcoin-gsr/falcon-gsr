@@ -25,9 +25,9 @@ from pathlib import Path
 
 import falcon
 import falcon_ref as ref
-from gsrasm import GSR_ROOT
+from gsrasm import BITCOIN_GSR
 
-sys.path.insert(0, str(GSR_ROOT / "bitcoin" / "test" / "functional"))
+sys.path.insert(0, str(BITCOIN_GSR / "test" / "functional"))
 from test_framework.messages import (  # noqa: E402
     COutPoint, CTransaction, CTxIn, CTxInWitness, CTxOut, ser_string, ser_uint256,
 )

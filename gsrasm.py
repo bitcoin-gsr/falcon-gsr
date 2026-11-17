@@ -6,7 +6,7 @@ Tokens are whitespace-separated; `#` starts a comment:
     x0011ff         a data push of these bytes
     @NAME           a reference to the macro NAME
 
-Pushes are minimal (Tapleaf 0xC2 rules). BITCOIN_GSR is a checkout of jmoik/bitcoin `gsr` and
+Pushes are minimal (Tapleaf 0xC2 rules). BITCOIN_GSR is a checkout of bitcoin-gsr/bitcoin `gsr` and
 BITCOIN_GSR_BUILD its CMake build directory (default: BITCOIN_GSR/build).
 """
 from __future__ import annotations

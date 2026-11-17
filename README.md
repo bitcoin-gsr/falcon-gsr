@@ -1,6 +1,6 @@
 # falcon-gsr
 
-Falcon-512 signature verification in Bitcoin Script on the GSR branch (Tapleaf 0xC2, BIP 440/441). SHAKE256 is computed with a Keccak-f[1600] permutation written in Script. All numbers are measured on jmoik/bitcoin `gsr` @ 1ef8163.
+Falcon-512 signature verification in Bitcoin Script on the GSR branch (Tapleaf 0xC2, BIP 440/441). SHAKE256 is computed with a Keccak-f[1600] permutation written in Script. All numbers are measured on bitcoin-gsr/bitcoin `gsr` @ 1ef8163.
 
 ## Results
 
@@ -92,11 +92,11 @@ The layout follows shrincs-gsr's `keccak.py` (14,425,040 varops). This version s
 
 ## Running
 
-This needs Python 3.10 or later (standard library only) and a CMake build of [jmoik/bitcoin](https://github.com/jmoik/bitcoin) `gsr` @ 1ef8163, with Core's usual build dependencies. From an empty directory:
+This needs Python 3.10 or later (standard library only) and a CMake build of [bitcoin-gsr/bitcoin](https://github.com/bitcoin-gsr/bitcoin) `gsr` @ 1ef8163, with Core's usual build dependencies. From an empty directory:
 
 ```
 git init bitcoin
-git -C bitcoin fetch --depth 1 https://github.com/jmoik/bitcoin 1ef816318a879fa3ef0746ad89460789c658d9e2
+git -C bitcoin fetch --depth 1 https://github.com/bitcoin-gsr/bitcoin 1ef816318a879fa3ef0746ad89460789c658d9e2
 git -C bitcoin checkout -q FETCH_HEAD
 cmake -S bitcoin -B bitcoin/build -DBUILD_TESTS=OFF -DBUILD_UTIL=ON -DENABLE_WALLET=OFF -DENABLE_IPC=OFF
 cmake --build bitcoin/build -j8

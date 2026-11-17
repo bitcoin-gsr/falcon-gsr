@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build txeval against the static libraries of a jmoik/bitcoin gsr build.
+# Build txeval against the static libraries of a bitcoin-gsr/bitcoin gsr build.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 src=${BITCOIN_GSR:-$here/../../bitcoin}

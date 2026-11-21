@@ -79,12 +79,13 @@ The layout follows shrincs-gsr's `keccak.py` (14,425,040 varops). This version s
   - Three signatures per variant pass.
   - The script's norm sum equals the model's. The bound is exact: a signature passes at β² equal to its own norm and fails one below.
   - These are rejected: a changed s2 coefficient, a different message, a flipped nonce bit, a short s2, another message's signature, the other variant's signature, and a stream with too few samples.
+- **Known answers.** All 100 Falcon-512 KAT vectors of the round-3 submission verify in `falcon_ref.py` and in the Script verifier, with the message as a witness item. Each is rejected with one message bit flipped or one s2 coefficient changed. The messages are 33 to 3,300 bytes, so `kat.py` replaces only the absorb stage with one that takes as many blocks as needed.
 - **Spends.** Each spend passes `VerifyScript`. The same witness in a transaction paying 1 sat less fails, and so does a corrupted s2.
 
 ## Limitations
 
 - s2 is supplied uncompressed (1,024 bytes). Parsing Falcon's compressed encoding in Script would cost more.
-- HashToPoint follows the Falcon specification but is not cross-checked against NIST's KAT vectors. FIPS 206 prefixes the message with 0x00 ‖ len(ctx) ‖ ctx. With an empty context, that is two bytes in the same block, at no extra cost.
+- The verifiers follow Falcon as submitted to NIST's round 3. FIPS 206 (FN-DSA) is not published yet. [NIST's preview](https://csrc.nist.gov/csrc/media/Presentations/2025/fips-206-fn-dsa-%28falcon%29/images-media/fips_206-perlner_2.1.pdf) says it will hash the public key and a domain separator into the message and also bound the signature's infinity norm, so the verifiers will need those changes.
 - `OP_TX` is a draft opcode of the gsr branch.
 - Possible savings:
   - A signer that redraws the nonce until 8 SHAKE256 blocks suffice (41% of nonces) saves one permutation, about 1.5k WU.
@@ -111,6 +112,14 @@ python3 keccak.py      # Keccak checks and cost
 python3 falcon.py      # verifier tests and stage costs (message as a witness item)
 python3 spend.py       # OP_TX-bound spends through VerifyScript
 python3 estimate.py    # unit costs, and an NTT-based estimate (about 34k WU) that the Kronecker MUL beats
+```
+
+`kat.py` needs the KAT file of the round-3 submission. It checks the file's SHA-256 before use.
+
+```
+curl -L --create-dirs -o build/falcon-round3.zip https://falcon-sign.info/falcon-round3.zip
+unzip -j build/falcon-round3.zip falcon-round3/KAT/falcon512-KAT.rsp -d build
+python3 kat.py         # the 100 Falcon-512 KAT vectors through falcon_ref.py and the Script verifier
 ```
 
 Other files:
